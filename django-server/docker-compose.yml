@@ -1,0 +1,14 @@
+services:
+  node:
+    build: .
+    image: nmm_django
+    # container_name: nmm_django
+    ports:
+      - "8000:8000"
+    networks:
+      - jungle_network
+
+networks:
+  jungle_network:
+    external: true
+    driver: bridge
