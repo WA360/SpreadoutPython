@@ -74,7 +74,7 @@ class RecommendView(APIView):
                 for i in range(len(toc)):
                     level, title, start_page = toc[i]
                     end_page = None
-                    
+
                     # 다음 챕터의 시작 페이지를 찾고 현재 챕터의 end_page로 설정
                     if i + 1 < len(toc):
                         next_level, next_title, next_start_page = toc[i + 1]
@@ -83,11 +83,15 @@ class RecommendView(APIView):
                     else:
                         # 마지막 챕터의 경우, 마지막 페이지를 end_page로 설정
                         end_page = total_pages - 1
-                    
+
                     # `end_page`가 None일 경우 total_pages - 1로 설정
                     if end_page is None:
                         end_page = total_pages - 1
-                    
+
+                    # 시작 페이지와 끝 페이지가 동일한 경우를 처리
+                    if start_page > end_page:
+                        end_page = start_page
+
                     chapter = Chapter.objects.create(
                         name=title,
                         start_page=start_page,
@@ -99,7 +103,6 @@ class RecommendView(APIView):
                     print("챕터 삽입 완료")
                     chapters.append(chapter)
                 return chapters
-
 
             toc = pdf_document.get_toc()
             if toc:
@@ -115,9 +118,19 @@ class RecommendView(APIView):
             model = SentenceTransformer('all-mpnet-base-v2')
             logger.info("SentenceTransformer model loaded")
 
-            # 각 페이지를 임베딩으로 변환
-            page_embeddings = [model.encode(text).tolist() for text in pages_text]
-            logger.info("Page embeddings created")
+            # 챕터 내 모든 페이지를 임베딩으로 변환
+            chapter_embeddings = {}
+            for chapter in chapters:
+                # 챕터의 시작 페이지와 끝 페이지를 기반으로 텍스트 추출
+                chapter_texts = pages_text[chapter.start_page - 1:chapter.end_page]
+                # 각 페이지 텍스트를 임베딩하여 평균을 계산
+                embeddings = [model.encode(text).tolist() for text in chapter_texts]
+                if embeddings:
+                    avg_embedding = np.mean(embeddings, axis=0).tolist()
+                else:
+                    avg_embedding = []
+                chapter_embeddings[chapter.start_page] = avg_embedding
+            logger.info("Chapter embeddings created")
             print("------------------7-------------------")
 
             # 유사도 임계값 설정 (예: 0.8)
@@ -133,20 +146,26 @@ class RecommendView(APIView):
                     return 0.0
                 return np.dot(vec1, vec2) / (norm1 * norm2)
 
-            # 챕터별로 페이지 연결 생성
-            for chapter in chapters:
-                if chapter.end_page is not None:  # end_page가 설정된 경우에만 처리
-                    chapter_pages_embeddings = page_embeddings[chapter.start_page - 1:chapter.end_page]
-                    for i in range(len(chapter_pages_embeddings)):
-                        for j in range(i + 1, len(chapter_pages_embeddings)):
-                            similarity = cosine_similarity(chapter_pages_embeddings[i], chapter_pages_embeddings[j])
-                            if similarity >= similarity_threshold:
-                                PageConnection.objects.create(
-                                    pdf_file=pdf_file,
-                                    source_page=chapter.start_page + i,
-                                    target_page=chapter.start_page + j,
-                                    similarity=similarity
-                                )
+            # 챕터별로 챕터 간의 유사도 계산 및 연결 생성
+            chapter_start_pages = list(chapter_embeddings.keys())
+            for i in range(len(chapter_start_pages)):
+                for j in range(i + 1, len(chapter_start_pages)):
+                    start_page_i = chapter_start_pages[i]
+                    start_page_j = chapter_start_pages[j]
+
+                    # 챕터 시작 페이지 임베딩
+                    embedding_i = chapter_embeddings.get(start_page_i)
+                    embedding_j = chapter_embeddings.get(start_page_j)
+
+                    if embedding_i is not None and embedding_j is not None:
+                        similarity = cosine_similarity(embedding_i, embedding_j)
+                        if similarity >= similarity_threshold:
+                            PageConnection.objects.create(
+                                pdf_file=pdf_file,
+                                source_page=start_page_i,
+                                target_page=start_page_j,
+                                similarity=similarity
+                            )
             logger.info("Chapter-based page connections created")
             print("------------------8-------------------")
 
