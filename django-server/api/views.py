@@ -103,7 +103,6 @@ class RecommendView(APIView):
                         bookmarked=False,  # 기본값을 False로 설정
                         pdf_file=pdf_file
                     )
-                    print("챕터 삽입 완료")
                     chapters.append(chapter)
                 return chapters
 
