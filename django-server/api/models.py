@@ -17,9 +17,10 @@ class Chapter(models.Model):
 
 class PageConnection(models.Model):
     pdf_file = models.ForeignKey(PDFFile, on_delete=models.CASCADE)
-    source_page = models.IntegerField()
-    target_page = models.IntegerField()
+    source = models.ForeignKey(Chapter, related_name='source_connections', on_delete=models.CASCADE)
+    target = models.ForeignKey(Chapter, related_name='target_connections', on_delete=models.CASCADE)
     similarity = models.FloatField()
+
 
 
 """

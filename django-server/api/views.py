@@ -15,7 +15,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# pdf를 받아 s3에 저장, 챕터정보 추출하여 db에 저장, 챕터정보를 바탕으로 연관성 정보 생성하여 db에 저장
+# pdf를 받아 s3에 저장, 챕터정보 추출하여 db에 저장, 챕터정보를 바탕으로 연결 정보 생성하여 db에 저장
 class RecommendView(APIView):
     def post(self, request):
         try:
@@ -26,7 +26,6 @@ class RecommendView(APIView):
 
             file = request.FILES['file']
             user_id = request.data['user_id']
-            print("------------------1-------------------")
 
             # 유저 확인
             try:
@@ -42,7 +41,6 @@ class RecommendView(APIView):
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 region_name=settings.AWS_S3_REGION_NAME
             )
-            print("------------------2-------------------")
 
             # S3에 파일 업로드
             try:
@@ -52,13 +50,10 @@ class RecommendView(APIView):
             except Exception as e:
                 logger.error(f"Failed to upload file to S3: {e}")
                 return Response({"error": "Failed to upload file to S3."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            print("------------------3-------------------")
 
             # PDFFile 객체 생성
             pdf_file = PDFFile.objects.create(filename=file_name, user=user, url=file_url)
             logger.info(f"PDFFile object created with id {pdf_file.id}")
-            print(f"PDFFile object created with id: {pdf_file.id}")  # ID 출력
-            print("------------------4-------------------")
 
             # PDF 파일에서 페이지 텍스트를 추출하여 총 페이지 수 확인
             file_obj = s3_client.get_object(Bucket=settings.AWS_STORAGE_BUCKET_NAME, Key=file_name)
@@ -69,7 +64,6 @@ class RecommendView(APIView):
             pdf_document = fitz.open(stream=file_io, filetype="pdf")
             pages_text = [pdf_document.load_page(page_num).get_text() for page_num in range(len(pdf_document))]
             logger.info(f"Extracted text from {len(pages_text)} pages")
-            print("------------------5-------------------")
 
             # 챕터 추출 함수 정의
             def save_chapters_from_toc(toc, pdf_file, total_pages):
@@ -114,62 +108,23 @@ class RecommendView(APIView):
                 logger.warning("No TOC found in PDF")
                 chapters = []
 
-            print("------------------6-------------------")
-
-            # Sentence-BERT 모델 로드
-            model = SentenceTransformer('all-mpnet-base-v2')
-            logger.info("SentenceTransformer model loaded")
-
-            # 챕터 내 모든 페이지를 임베딩으로 변환
-            chapter_embeddings = {}
-            for chapter in chapters:
-                # 챕터의 시작 페이지와 끝 페이지를 기반으로 텍스트 추출
-                chapter_texts = pages_text[chapter.start_page - 1:chapter.end_page]
-                # 각 페이지 텍스트를 임베딩하여 평균을 계산
-                embeddings = [model.encode(text).tolist() for text in chapter_texts]
-                if embeddings:
-                    avg_embedding = np.mean(embeddings, axis=0).tolist()
-                else:
-                    avg_embedding = []
-                chapter_embeddings[chapter.start_page] = avg_embedding
-            logger.info("Chapter embeddings created")
-            print("------------------7-------------------")
-
-            # 유사도 임계값 설정 (예: 0.8)
-            similarity_threshold = 0.8
-
-            # 유사도 계산 함수 정의
-            def cosine_similarity(vec1, vec2):
-                vec1 = np.array(vec1)
-                vec2 = np.array(vec2)
-                norm1 = np.linalg.norm(vec1)
-                norm2 = np.linalg.norm(vec2)
-                if norm1 == 0 or norm2 == 0:
-                    return 0.0
-                return np.dot(vec1, vec2) / (norm1 * norm2)
-
-            # 챕터별로 챕터 간의 유사도 계산 및 연결 생성
-            chapter_start_pages = list(chapter_embeddings.keys())
-            for i in range(len(chapter_start_pages)):
-                for j in range(i + 1, len(chapter_start_pages)):
-                    start_page_i = chapter_start_pages[i]
-                    start_page_j = chapter_start_pages[j]
-
-                    # 챕터 시작 페이지 임베딩
-                    embedding_i = chapter_embeddings.get(start_page_i)
-                    embedding_j = chapter_embeddings.get(start_page_j)
-
-                    if embedding_i is not None and embedding_j is not None:
-                        similarity = cosine_similarity(embedding_i, embedding_j)
-                        if similarity >= similarity_threshold:
+            # 챕터 계층 구조에 따른 연결 생성
+            def create_connections(chapters):
+                for i, chapter in enumerate(chapters):
+                    for j in range(i + 1, len(chapters)):
+                        next_chapter = chapters[j]
+                        if next_chapter.level > chapter.level:
                             PageConnection.objects.create(
                                 pdf_file=pdf_file,
-                                source_page=start_page_i,
-                                target_page=start_page_j,
-                                similarity=similarity
+                                source=chapter,
+                                target=next_chapter,
+                                similarity=1.0  # similarity 값을 1.0으로 고정
                             )
+                        else:
+                            break
+
+            create_connections(chapters)
             logger.info("Chapter-based page connections created")
-            print("------------------8-------------------")
 
             # ID를 반환하는 응답
             return Response({"message": "PDF and connections have been saved.", "pdf_file_id": pdf_file.id}, status=status.HTTP_200_OK)

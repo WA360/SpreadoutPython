@@ -7,4 +7,4 @@ class PDFFileAdmin(admin.ModelAdmin):
 
 @admin.register(PageConnection)
 class PageConnectionAdmin(admin.ModelAdmin):
-    list_display = ('pdf_file', 'source_page', 'target_page', 'similarity')
+    list_display = ('pdf_file', 'source', 'target', 'similarity')
