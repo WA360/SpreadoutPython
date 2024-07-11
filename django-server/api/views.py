@@ -113,14 +113,14 @@ class RecommendView(APIView):
                 for i, chapter in enumerate(chapters):
                     for j in range(i + 1, len(chapters)):
                         next_chapter = chapters[j]
-                        if next_chapter.level > chapter.level:
+                        if next_chapter.level == chapter.level + 1:
                             PageConnection.objects.create(
-                                pdf_file=pdf_file,
+                                pdf_file=chapter.pdf_file,
                                 source=chapter,
                                 target=next_chapter,
                                 similarity=1.0  # similarity 값을 1.0으로 고정
                             )
-                        else:
+                        elif next_chapter.level <= chapter.level:
                             break
 
             create_connections(chapters)
