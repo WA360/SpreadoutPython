@@ -14,6 +14,7 @@ class Chapter(models.Model):
     level = models.IntegerField()
     bookmarked = models.BooleanField(default=False)
     pdf_file = models.ForeignKey(PDFFile, on_delete=models.CASCADE)
+    group = models.IntegerField(null=True)
 
 class PageConnection(models.Model):
     pdf_file = models.ForeignKey(PDFFile, on_delete=models.CASCADE)

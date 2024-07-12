@@ -68,6 +68,7 @@ class RecommendView(APIView):
             # 챕터 추출 함수 정의
             def save_chapters_from_toc(toc, pdf_file, total_pages):
                 chapters = []
+                current_group = 1  # 현재 그룹 번호
                 for i in range(len(toc)):
                     level, title, start_page = toc[i]
                     end_page = None
@@ -77,10 +78,9 @@ class RecommendView(APIView):
                         next_level, next_title, next_start_page = toc[i + 1]
                         if next_level <= level:
                             end_page = next_start_page - 1
-                    else:
-                        # 마지막 챕터의 경우, 마지막 페이지를 end_page로 설정
-                        end_page = total_pages - 1
-
+                        else:
+                            # 마지막 챕터의 경우, 마지막 페이지를 end_page로 설정
+                            end_page = total_pages - 1
                     # `end_page`가 None일 경우 total_pages - 1로 설정
                     if end_page is None:
                         end_page = total_pages - 1
@@ -89,12 +89,17 @@ class RecommendView(APIView):
                     if start_page > end_page:
                         end_page = start_page
 
+                    if level == 1:
+                        # level 1 챕터의 경우 새로운 그룹 시작
+                        current_group += 1
+
                     chapter = Chapter.objects.create(
                         name=title,
                         start_page=start_page,
                         end_page=end_page,
                         level=level,
-                        bookmarked=False,  # 기본값을 False로 설정
+                        group=current_group,  # 현재 그룹 번호로 설정
+                        bookmarked=False,
                         pdf_file=pdf_file
                     )
                     chapters.append(chapter)
