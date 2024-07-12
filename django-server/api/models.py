@@ -22,7 +22,18 @@ class PageConnection(models.Model):
     target = models.ForeignKey(Chapter, related_name='target_connections', on_delete=models.CASCADE)
     similarity = models.FloatField()
 
+# 메세지 관련 모델
+class Session(models.Model):
+    session_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE)
 
+class Message(models.Model):
+    message_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    session = models.ForeignKey(Session, on_delete=models.CASCADE)
+    sender = models.CharField(max_length=10, choices=[('user', 'User'), ('bot', 'Bot')])
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
 """
 db migration
