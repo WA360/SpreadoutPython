@@ -167,8 +167,6 @@ class SearchView(APIView):
             for page in doc:
                 text += page.get_text()
 
-            num = 1
-            # 검색 로직 (예시)
             results = []
             if keyword in text:
                 chapters = Chapter.objects.filter(pdf_file=pdf_file)
