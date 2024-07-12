@@ -11,6 +11,8 @@ import numpy as np
 from .models import PDFFile, PageConnection, Chapter
 from django.conf import settings
 from django.contrib.auth.models import User  # 장고에서 기본으로 제공하는 user db model
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 import logging
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,7 @@ class RecommendView(APIView):
                     if start_page > end_page:
                         end_page = start_page
 
+                    # 그루핑
                     if level == 1:
                         # level 1 챕터의 경우 새로운 그룹 시작
                         current_group += 1
@@ -123,7 +126,7 @@ class RecommendView(APIView):
                                 pdf_file=chapter.pdf_file,
                                 source=chapter,
                                 target=next_chapter,
-                                similarity=1.0  # similarity 값을 1.0으로 고정
+                                similarity=1.0  # 사용하지 않는 값
                             )
                         elif next_chapter.level <= chapter.level:
                             break
@@ -138,90 +141,56 @@ class RecommendView(APIView):
             logger.error(f"Error occurred: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-# 챗봇 파이프라인
-class ChatBotPipelineView(APIView):
-    def post(self, request):
+# 키워드 검색
+class SearchView(APIView):
+    def get(self, request):
         try:
-            # s3_url과 question 확인
-            if 's3_url' not in request.data or 'question' not in request.data:
-                logger.error("s3_url or question not found in request")
-                return Response({"error": "s3_url and question must be provided."}, status=status.HTTP_400_BAD_REQUEST)
-            
-            s3_url = request.data['s3_url']
-            question = request.data['question']
-            
-            # S3 버킷 및 파일 이름 추출
-            bucket_name, file_name = self.parse_s3_url(s3_url)
-            
-            # S3에서 파일 읽기
-            s3_client = boto3.client(
-                's3',
-                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                region_name=settings.AWS_S3_REGION_NAME
-            )
-            
-            file_obj = s3_client.get_object(Bucket=bucket_name, Key=file_name)
-            file_content = file_obj['Body'].read()
-            file_io = BytesIO(file_content)
-            file_io.seek(0)
-            
-            # PDF 파일에서 텍스트 추출 및 인덱싱
-            pdf_document = fitz.open(stream=file_io, filetype="pdf")
-            pages_text = [pdf_document.load_page(page_num).get_text() for page_num in range(len(pdf_document))]
-            logger.info(f"Extracted text from {len(pdf_document)} pages")
-            
-            # Sentence-BERT 모델 로드
-            model = SentenceTransformer('all-mpnet-base-v2')
-            logger.info("SentenceTransformer model loaded")
-            
-            # 페이지 텍스트를 임베딩으로 변환하여 인덱싱
-            page_embeddings = [model.encode(page_text).tolist() for page_text in pages_text]
-            logger.info("Page embeddings created")
-            
-            # 질문 임베딩 생성
-            question_embedding = model.encode(question).tolist()
-            
-            # 유사도 계산
-            similarities = [util.pytorch_cos_sim(question_embedding, page_embedding) for page_embedding in page_embeddings]
-            most_similar_page = np.argmax(similarities)
-            most_similar_text = pages_text[most_similar_page]
-            logger.info(f"Most similar page: {most_similar_page}")
-            
-            # LLM 파이프라인을 사용하여 답변 생성
-            response_text = self.llm_pipeline(most_similar_text, question)
-            
-            final_response = {
-                "answer": response_text,
-                "page": most_similar_page + 1  # 페이지는 1부터 시작하도록 조정
-            }
-            
-            return Response(final_response, status=status.HTTP_200_OK)
-        
+            keyword = request.GET.get('keyword', '')
+            pdf_id = request.GET.get('pdf_id', None)
+
+            if not pdf_id:
+                return Response({'error': 'PDF ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            pdf_file = get_object_or_404(PDFFile, pk=pdf_id)
+
+            # S3에서 PDF 파일 다운로드
+            s3 = boto3.client('s3')
+            bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+            key = pdf_file.url.split('/')[-1]
+            obj = s3.get_object(Bucket=bucket_name, Key=key)
+            pdf_data = obj['Body'].read()
+
+            # PDF 텍스트 추출
+            doc = fitz.open(stream=pdf_data, filetype='pdf')
+            text = ""
+            num = 0
+            for page in doc:
+                text += page.get_text()
+
+            num = 1
+            # 검색 로직 (예시)
+            results = []
+            if keyword in text:
+                chapters = Chapter.objects.filter(pdf_file=pdf_file)
+                for chapter in chapters:
+                    page_start = chapter.start_page - 1  # PyMuPDF 페이지 번호는 0부터 시작
+                    page_end = chapter.end_page
+                    chapter_text = "".join([doc.load_page(i).get_text() for i in range(page_start, page_end)]) 
+                    if keyword.lower() in chapter_text.lower(): # 대소문자 구분 없이 검색
+                        found_pages = [
+                            i + 1
+                            for i in range(page_start, page_end)
+                            if keyword.lower() in doc.load_page(i).get_text().lower()
+                        ]
+                        results.append({
+                            'id': chapter.id,
+                            'name': chapter.name,
+                            'page': chapter.start_page,
+                            'found_pages': found_pages,
+                        })
+
+                return Response({'results': results})
+
         except Exception as e:
-            logger.error(f"Error occurred: {e}")
+            logger.error(f"Error occurred in SearchView: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    def parse_s3_url(self, s3_url):
-        # S3 URL에서 버킷 이름과 파일 이름을 추출
-        s3_components = s3_url.replace("https://", "").split(".s3.")
-        bucket_name = s3_components[0]
-        file_name = s3_components[1].split("amazonaws.com/")[1]
-        return bucket_name, file_name
-    
-    def llm_pipeline(self, text, question):
-        # 대규모 LLM 모델 예시
-        llm_model = pipeline("text-generation", model="llama-8B")  # 예시 모델
-        # llama 8B 모델 로드
-        llama_model = pipeline("text-generation", model="llama-8B")  # 예시 모델
-        
-        # 질문과 텍스트를 결합하여 모델에 입력
-        input_text = f"Question: {question}\nContext: {text}\nAnswer:"
-        
-        # 대규모 LLM 모델로 텍스트 처리
-        processed_text = llm_model(input_text, max_length=1024, num_return_sequences=1)[0]['generated_text']
-        
-        # llama 8B 모델로 응답을 인간 친화적으로 개선
-        refined_response = llama_model(processed_text, max_length=1024, num_return_sequences=1)[0]['generated_text']
-        
-        return refined_response
