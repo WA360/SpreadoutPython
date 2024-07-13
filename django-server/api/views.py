@@ -162,32 +162,22 @@ class SearchView(APIView):
 
             # PDF 텍스트 추출
             doc = fitz.open(stream=pdf_data, filetype='pdf')
-            text = ""
-            num = 0
-            for page in doc:
-                text += page.get_text()
 
-            results = []
-            if keyword in text:
-                chapters = Chapter.objects.filter(pdf_file=pdf_file)
-                for chapter in chapters:
-                    page_start = chapter.start_page - 1  # PyMuPDF 페이지 번호는 0부터 시작
-                    page_end = chapter.end_page
-                    chapter_text = "".join([doc.load_page(i).get_text() for i in range(page_start, page_end)]) 
-                    if keyword.lower() in chapter_text.lower(): # 대소문자 구분 없이 검색
-                        found_pages = [
-                            i + 1
-                            for i in range(page_start, page_end)
-                            if keyword.lower() in doc.load_page(i).get_text().lower()
-                        ]
-                        results.append({
-                            'id': chapter.id,
-                            'name': chapter.name,
-                            'page': chapter.start_page,
-                            'found_pages': found_pages,
-                        })
+            # 검색 로직 (개선)
+            results = set()
+            chapters = Chapter.objects.filter(pdf_file=pdf_file)
+            for chapter in chapters:
+                page_start = chapter.start_page - 1
+                page_end = chapter.end_page
+                chapter_text = "".join([doc.load_page(i).get_text() for i in range(page_start, page_end)])
+                if keyword.lower() in chapter_text.lower():
+                    found_pages = set()
+                    for i in range(page_start, page_end):
+                        if keyword.lower() in doc.load_page(i).get_text().lower():
+                            found_pages.add(i + 1)
+                    results.add((chapter.id, chapter.name, chapter.start_page, frozenset(found_pages)))
 
-                return Response({'results': results})
+            return Response({'results': [{'id': id, 'name': name, 'page': page, 'found_pages': found_pages} for id, name, page, found_pages in list(results)]})
 
         except Exception as e:
             logger.error(f"Error occurred in SearchView: {e}")
