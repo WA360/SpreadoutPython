@@ -1,4 +1,3 @@
-import uuid
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -25,12 +24,10 @@ class PageConnection(models.Model):
 
 # 메세지 관련 모델
 class Session(models.Model):
-    session_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     chapter = models.ForeignKey(Chapter, on_delete=models.CASCADE)
 
 class Message(models.Model):
-    message_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(Session, on_delete=models.CASCADE)
     sender = models.CharField(max_length=10, choices=[('user', 'User'), ('bot', 'Bot')])
     content = models.TextField()
