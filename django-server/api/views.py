@@ -163,8 +163,8 @@ class SearchView(APIView):
             # PDF 텍스트 추출
             doc = fitz.open(stream=pdf_data, filetype='pdf')
 
-            # 검색 로직 (개선)
-            results = set()
+            # 검색 로직 (개선): 가장 낮은 level의 챕터만 반환하도록 수정
+            results = {}
             chapters = Chapter.objects.filter(pdf_file=pdf_file)
             for chapter in chapters:
                 page_start = chapter.start_page - 1
@@ -175,9 +175,21 @@ class SearchView(APIView):
                     for i in range(page_start, page_end):
                         if keyword.lower() in doc.load_page(i).get_text().lower():
                             found_pages.add(i + 1)
-                    results.add((chapter.id, chapter.name, chapter.start_page, frozenset(found_pages)))
 
-            return Response({'results': [{'id': id, 'name': name, 'page': page, 'found_pages': found_pages} for id, name, page, found_pages in list(results)]})
+                    # 챕터의 level이 가장 낮은 것을 저장하도록 수정
+                    if chapter.level not in results or chapter.level < results[chapter.level]['level']:
+                        results[chapter.level] = {
+                            'id': chapter.id,
+                            'name': chapter.name,
+                            'start_page': chapter.start_page,
+                            'found_pages': frozenset(found_pages),
+                            'level': chapter.level
+                        }
+
+            # 결과를 level 오름차순으로 정렬하여 반환
+            sorted_results = sorted(results.values(), key=lambda x: x['level'])
+
+            return Response({'results': [{'id': res['id'], 'name': res['name'], 'page': res['start_page'], 'found_pages': res['found_pages']} for res in sorted_results]})
 
         except Exception as e:
             logger.error(f"Error occurred in SearchView: {e}")
