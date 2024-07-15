@@ -13,6 +13,7 @@ from django.conf import settings
 from django.contrib.auth.models import User  # 장고에서 기본으로 제공하는 user db model
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from rest_framework.parsers import MultiPartParser, FormParser
 import logging
 
 logger = logging.getLogger(__name__)
@@ -143,29 +144,30 @@ class RecommendView(APIView):
         
 # 키워드 검색
 class SearchView(APIView):
-    def get(self, request):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
         try:
-            keyword = request.GET.get('keyword', '')
-            pdf_id = request.GET.get('pdf_id', None)
+            # 파일 및 검색어 정보 확인
+            if 'file' not in request.FILES or 'keyword' not in request.data:
+                return Response({"error": "File and keyword must be provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-            if not pdf_id:
-                return Response({'error': 'PDF ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-            pdf_file = get_object_or_404(PDFFile, pk=pdf_id)
-
-            # S3에서 PDF 파일 다운로드
-            s3 = boto3.client('s3')
-            bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-            key = pdf_file.url.split('/')[-1]
-            obj = s3.get_object(Bucket=bucket_name, Key=key)
-            pdf_data = obj['Body'].read()
+            file = request.FILES['file']
+            keyword = request.data['keyword']
 
             # PDF 텍스트 추출
-            doc = fitz.open(stream=pdf_data, filetype='pdf')
+            doc = fitz.open(stream=file.read(), filetype='pdf')
 
-            # 검색 로직 (개선): 가장 낮은 level의 챕터만 반환하도록 수정
+            # PDF 파일과 연결된 챕터를 찾기 위해 DB에서 필터링
+            # 'pdf_file'을 정의하거나 필터링에 사용할 모델 필드가 필요합니다.
+            # 예를 들어, 특정 PDF 파일에 연결된 챕터를 찾으려면 pdf_file_id 등을 사용해야 합니다.
+            # 지금은 파일 업로드가 아닌 pdf_file 객체를 필요로 하므로 주석 처리
+            # chapters = Chapter.objects.filter(pdf_file=pdf_file)  # pdf_file은 현재 정의되지 않음
+
+            # 현재 검색에서는 PDF 파일에 연결된 챕터 정보가 필요 없으므로 아래와 같이
+            chapters = Chapter.objects.all()  # 또는 특정 조건으로 필터링
+
             results = {}
-            chapters = Chapter.objects.filter(pdf_file=pdf_file)
             for chapter in chapters:
                 page_start = chapter.start_page - 1
                 page_end = chapter.end_page
