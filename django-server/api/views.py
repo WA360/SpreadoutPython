@@ -155,7 +155,7 @@ class RecommendView(APIView):
                 for i, chapter in enumerate(chapters):
                     for j in range(i + 1, len(chapters)):
                         similarity = cosine_similarities[i][j]
-                        if similarity > 0.8:  # 유사도 임계값 설정
+                        if similarity > 0.7:  # 유사도 임계값 설정
                             PageConnection.objects.create(
                                 pdf_file=chapter.pdf_file,
                                 source=chapter,
