@@ -127,7 +127,7 @@ class RecommendView(APIView):
                                 pdf_file=chapter.pdf_file,
                                 source=chapter,
                                 target=next_chapter,
-                                similarity=1.0  # 사용하지 않는 값
+                                similarity=-1.0  # 챕터기반 연결 구분
                             )
                         elif next_chapter.level <= chapter.level:
                             break
