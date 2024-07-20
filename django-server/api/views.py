@@ -117,27 +117,56 @@ class RecommendView(APIView):
                 logger.warning("No TOC found in PDF")
                 chapters = []
 
-            # 챕터 계층 구조에 따른 연결 생성
-            def create_connections(chapters):
+        #     # 챕터 계층 구조에 따른 연결 생성
+        #     def create_connections(chapters):
+        #         for i, chapter in enumerate(chapters):
+        #             for j in range(i + 1, len(chapters)):
+        #                 next_chapter = chapters[j]
+        #                 if next_chapter.level == chapter.level + 1:
+        #                     PageConnection.objects.create(
+        #                         pdf_file=chapter.pdf_file,
+        #                         source=chapter,
+        #                         target=next_chapter,
+        #                         similarity=1.0  # 사용하지 않는 값
+        #                     )
+        #                 elif next_chapter.level <= chapter.level:
+        #                     break
+
+        #     create_connections(chapters)
+        #     logger.info("Chapter-based page connections created")
+
+        #     # ID를 반환하는 응답
+        #     return Response({"message": "PDF and connections have been saved.", "pdf_file_id": pdf_file.id}, status=status.HTTP_200_OK)
+
+        # except Exception as e:
+        #     logger.error(f"Error occurred: {e}")
+        #     return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            # sentenceTranceformer 모델 로드
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+
+            # 챕터 임베딩 생성
+            chapter_texts = [chapter.name for chapter in chapters]
+            chapter_embeddings = model.encode(chapter_texts)
+
+            # 유사도 계산 및 연결 생성
+            def create_connections_from_embeddings(chapters, embeddings):
+                cosine_similarities = util.pytorch_cos_sim(embeddings, embeddings).numpy()
                 for i, chapter in enumerate(chapters):
                     for j in range(i + 1, len(chapters)):
-                        next_chapter = chapters[j]
-                        if next_chapter.level == chapter.level + 1:
+                        similarity = cosine_similarities[i][j]
+                        if similarity > 0.8:  # 유사도 임계값 설정
                             PageConnection.objects.create(
                                 pdf_file=chapter.pdf_file,
                                 source=chapter,
-                                target=next_chapter,
-                                similarity=1.0  # 사용하지 않는 값
+                                target=chapters[j],
+                                similarity=similarity
                             )
-                        elif next_chapter.level <= chapter.level:
-                            break
 
-            create_connections(chapters)
-            logger.info("Chapter-based page connections created")
-
+            create_connections_from_embeddings(chapters, chapter_embeddings)
+            logger.info("Chapter-based page connections created using embeddings")
             # ID를 반환하는 응답
             return Response({"message": "PDF and connections have been saved.", "pdf_file_id": pdf_file.id}, status=status.HTTP_200_OK)
-
         except Exception as e:
             logger.error(f"Error occurred: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
