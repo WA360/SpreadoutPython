@@ -72,6 +72,7 @@ class RecommendView(APIView):
             def save_chapters_from_toc(toc, pdf_file, total_pages):
                 chapters = []
                 current_group = 1  # 현재 그룹 번호
+                first_chapter_id = None  # 첫 번째 챕터의 ID를 저장할 변수
                 for i in range(len(toc)):
                     level, title, start_page = toc[i]
                     end_page = None
@@ -106,16 +107,18 @@ class RecommendView(APIView):
                         bookmarked=False,
                         pdf_file=pdf_file
                     )
+                    if first_chapter_id is None:
+                        first_chapter_id = chapter.id  # 첫 번째 챕터의 ID 저장
                     chapters.append(chapter)
-                return chapters
+                return chapters, first_chapter_id
 
             toc = pdf_document.get_toc()
             if toc:
-                chapters = save_chapters_from_toc(toc, pdf_file, len(pages_text))
-                logger.info("Chapters information saved from TOC")
+                chapters, first_chapter_id = save_chapters_from_toc(toc, pdf_file, len(pages_text))
+                logger.info(f"Chapters information saved from TOC. First chapter ID: {first_chapter_id}")
             else:
                 logger.warning("No TOC found in PDF")
-                chapters = []
+                chapters, first_chapter_id = [], None
 
             # 챕터별로 연결 생성
             def create_connections(chapters):
@@ -158,7 +161,7 @@ class RecommendView(APIView):
             create_connections_from_embeddings(chapters, chapter_embeddings)
             logger.info("Chapter-based page connections created using embeddings")
             # ID를 반환하는 응답
-            return Response({"message": "PDF and connections have been saved.", "pdf_file_id": pdf_file.id}, status=status.HTTP_200_OK)
+            return Response({"message": "PDF and connections have been saved.", "pdf_file_id": pdf_file.id, "first_chapter_id": first_chapter_id}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Error occurred: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
